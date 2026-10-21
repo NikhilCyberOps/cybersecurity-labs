@@ -1,1 +1,33 @@
+Penetration Testing Report — Metasploitable 3
 
+Evidence basis: supplied screenshots; not an independent retest
+
+Executive Summary — Service Inventory
+Port	Service	Evidence Status
+21	ProFTPD 1.3.5	High — command execution demonstrated
+22	OpenSSH 6.6.1p1	High — weak creds demonstrated
+80	Apache 2.4.7	High — app issue suspected, banner confirmed
+445	Samba smbd 3.X-4.X	Unconfirmed — scanner-only DoS result
+631	CUPS 1.7	Informational — enumeration only
+3306	MySQL	Informational — exposure only
+3500	WEBrick/Ruby	Informational — enumeration only
+6697	UnrealIRCd	High — backdoor RCE demonstrated
+8080	Jetty 8.1.7	Informational — enumeration only
+Each section (10 total) carries forward your original caveats exactly
+Recon — nmap -sV -p- full scan, styled as a terminal block
+ProFTPD (21) — mod_copy RCE → shell as www-data (explicitly: NOT root)
+SSH (22) — login as vagrant:vagrant, UID 900, sudo group (explicitly: sudo escalation NOT proven)
+Apache (80) — banner confirmed; SQL injection flagged “suggestive, not fully validated” (endpoint/params not in evidence)
+SMB (445) — smb-vuln-regsvc-dos marked Unconfirmed (Windows 2000 script run against a Linux target)
+CUPS (631) — informational, enumeration only
+MySQL (3306) — informational, port exposure only, no auth attempted
+WEBrick (3500) — informational, enumeration only
+UnrealIRCd (6697) — backdoor RCE → shell as boba_fett + docker group (explicitly: NOT root, no proven docker escape)
+Jetty (8080) — informational, enumeration only
+
+Each section’s PoC table uses the same 10-field layout (Vulnerability Name / Port / Service / Version / Severity-Status / CVE / Description / PoC Result / Remediation / Proof of Concept), with a grey “Unconfirmed” and blue “Informational” severity color added alongside the Critical/High/Medium/Low palette from the Metasploitable 2 report.
+
+Closing sections
+Overall Remediation Priorities (6 bullets, same as your original)
+Limitations — restates that this is screenshot-derived evidence, not a fresh retest, and that no shell shown proves root
+Evidence Register — note on mapping sanitized screenshots to each section
