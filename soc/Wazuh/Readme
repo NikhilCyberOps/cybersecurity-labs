@@ -1,0 +1,107 @@
+# Detecting an SSH Brute Force Attack and Post-Compromise Malware Upload Using Wazuh SIEM with VirusTotal Integration
+
+A hands-on SOC detection engineering lab: an attacker brute-forces SSH on a Linux victim, logs in, escalates privileges, and uploads a malicious file — and Wazuh detects every stage of the chain in real time, with File Integrity Monitoring (FIM) and an automated VirusTotal lookup confirming the malicious verdict.
+
+📄 **Full report (with every finding boxed and captioned):** [`Wazuh_SSH_Bruteforce_VirusTotal_Report.docx`](./Wazuh_SSH_Bruteforce_VirusTotal_Report.docx)
+
+Every alert screenshot in the report has the exact line that matters — a rule description, a detection ratio, an "added" event — boxed in red, so the finding is obvious at a glance instead of buried in a dense table.
+
+---
+
+## Overview
+
+| | |
+|---|---|
+| **Attack simulated** | SSH brute force → successful compromise → malicious file upload |
+| **SIEM** | Wazuh 4.x (Manager + Agent) |
+| **Detections** | sshd auth failures, brute-force correlation rule, FIM (syscheck), VirusTotal integration |
+| **Threat intel** | VirusTotal (automated hash lookup via Wazuh integration) |
+| **MITRE ATT&CK** | T1110.001, T1078, T1105, T1203 |
+
+## Lab Architecture
+
+| Role | Machine | Hypervisor | IP |
+|---|---|---|---|
+| Wazuh Manager / SIEM | Wazuh OVA (Linux) | VirtualBox | `192.168.31.110` |
+| Victim / Wazuh Agent | Kali Linux | VMware | `192.168.31.172` |
+| Attacker | Windows host (WSL terminal) | Host OS | `192.168.31.147` |
+
+```
+Attacker (Windows/WSL) --SSH brute force--> Victim (Kali, Wazuh agent) --telemetry--> Wazuh Manager --hash lookup--> VirusTotal
+```
+
+## Attack Chain & Detections
+
+### 1. SSH Brute Force
+Hydra brute-forced the SSH login on the victim. Wazuh captured each failed attempt (`rule 5760`) and then fired a correlated high-severity alert once a successful login followed the failures (`rule 40112`, level 12) — mapped to **T1110.001 (Brute Force)** and **T1078 (Valid Accounts)**.
+
+![Hydra brute force success](images/06_hydra_success_highlighted.png)
+![Correlated brute-force alert vs. raw failures](images/07_ssh_bruteforce_alert_highlighted.png)
+
+### 2. Post-Compromise Malware Upload
+Using the cracked credentials, the attacker escalated to root and dropped an EICAR test file (industry-standard harmless AV test file) into a monitored directory.
+
+![Root escalation](images/09_root_escalation.png)
+![EICAR file downloaded and confirmed on disk](images/10_eicar_download_highlighted.png)
+
+### 3. File Integrity Monitoring (FIM)
+Wazuh's `syscheck` module, configured with real-time monitoring, detected the new file within seconds (`rule 554`).
+
+![FIM alert](images/11_fim_alert_highlighted.png)
+
+### 4. VirusTotal Verdict
+The Wazuh manager automatically submitted the file's hash to VirusTotal. 66/68 engines flagged it as malicious, and Wazuh generated a correlated alert (`rule 87105`, level 12) — mapped to **T1203 (Execution)**.
+
+![VirusTotal detection](images/12_virustotal_detection_highlighted.png)
+![Wazuh VirusTotal alert](images/13_wazuh_virustotal_alert_highlighted.png)
+
+## Troubleshooting (included deliberately)
+
+Alerts initially did not fire. Root cause: the `syscheck` monitored directory had been configured on the **Wazuh manager's** `ossec.conf` instead of the **Kali agent's** `ossec.conf` — two separate machines with separate filesystems. Fixing the path on the correct host (the agent) resolved it immediately. This is included because diagnosing detection gaps is a core SOC analyst skill, not just getting alerts to fire on the first try.
+
+## MITRE ATT&CK Mapping
+
+| Stage | Technique | Tactic |
+|---|---|---|
+| SSH brute force | T1110.001 – Brute Force: Password Guessing | Credential Access |
+| Successful login after failures | T1078 – Valid Accounts | Initial Access / Persistence |
+| File upload / drop | T1105 – Ingress Tool Transfer | Command and Control |
+| File execution risk | T1203 – Exploitation for Client Execution | Execution |
+
+## Key Configuration Snippets
+
+**Agent (`/var/ossec/etc/ossec.conf` on the Kali victim) — enable real-time FIM:**
+```xml
+<syscheck>
+  <disabled>no</disabled>
+  <directories realtime="yes" report_changes="yes">/root</directories>
+  ...
+</syscheck>
+```
+
+**Manager (`/var/ossec/etc/ossec.conf` on the Wazuh server) — VirusTotal integration:**
+```xml
+<integration>
+  <name>virustotal</name>
+  <api_key>YOUR_VT_API_KEY</api_key>
+  <group>syscheck</group>
+  <alert_format>json</alert_format>
+</integration>
+```
+
+> ⚠️ Redact your real API key before committing this repo publicly.
+
+## Findings & Recommendations
+
+- Password-based SSH with a weak password made brute-forcing trivial → move to key-based auth, disable password login.
+- No rate-limiting/lockout was in place → deploy `fail2ban` or Wazuh **Active Response** (`firewall-drop`) to auto-block brute-force source IPs.
+- CIS Benchmark scan on the victim scored only **47%** (95 failed checks) → prioritize SSH and filesystem hardening.
+- The FIM + VirusTotal pipeline correctly detected a malicious file within seconds of upload, validating the detection path for real-world malware.
+
+## All Screenshots
+
+See the [`images/`](./images) folder for the full set of evidence screenshots (highlighted versions marked `_highlighted`) referenced in the report.
+
+## Disclaimer
+
+This lab was performed entirely in an isolated, self-owned virtual environment using the industry-standard, harmless **EICAR test file** — no real malware was used. Only attack machines you own should ever be targeted this way.
